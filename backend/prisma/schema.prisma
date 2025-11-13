@@ -1,0 +1,417 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  username  String   @unique
+  password  String?  // null для OAuth пользователей
+  avatar    String?
+  bio       String?
+  reputation Int     @default(0)
+  level     Int      @default(1)
+  role      UserRole @default(USER)
+  isEmailVerified Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  projects        Project[]
+  forumTopics     ForumTopic[]
+  forumPosts      ForumPost[]
+  sentMessages    Message[] @relation("SentMessages")
+  conversations   ConversationParticipant[]
+  teams           TeamMember[]
+  courses         Course[] @relation("CourseAuthor")
+  enrolledCourses CourseEnrollment[]
+  certificates    Certificate[]
+  badges          UserBadge[]
+  notifications   Notification[]
+
+  @@index([email])
+  @@index([username])
+}
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  earnedAt  DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  icon        String
+  users       UserBadge[]
+
+  @@index([name])
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  authorId    String
+  isPublic    Boolean  @default(true)
+  license     String
+  stars       Int      @default(0)
+  downloads   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  versions    ProjectVersion[]
+  tags        ProjectTag[]
+  attachments ForumTopicAttachment[]
+  team        Team?    @relation(fields: [teamId], references: [id])
+  teamId      String?
+
+  @@index([authorId])
+  @@index([isPublic])
+  @@index([createdAt])
+}
+
+model ProjectTag {
+  id        String   @id @default(cuid())
+  projectId String
+  tag       String
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tag])
+  @@index([tag])
+}
+
+model ProjectVersion {
+  id        String   @id @default(cuid())
+  projectId String
+  version   String
+  changelog String?
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  files     ProjectFile[]
+
+  @@index([projectId])
+}
+
+model ProjectFile {
+  id        String   @id @default(cuid())
+  versionId String
+  path      String
+  content   String?  @db.Text
+  size      Int
+  type      FileType
+
+  version   ProjectVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+}
+
+enum FileType {
+  FILE
+  DIRECTORY
+}
+
+model ForumCategory {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  icon        String
+  order       Int      @default(0)
+  topics      ForumTopic[]
+
+  @@index([order])
+}
+
+model ForumTopic {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   @db.Text
+  authorId  String
+  categoryId String
+  views     Int      @default(0)
+  likes     Int      @default(0)
+  isLocked  Boolean  @default(false)
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  category  ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  posts     ForumPost[]
+  attachments ForumTopicAttachment[]
+
+  @@index([categoryId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+model ForumTopicAttachment {
+  id        String   @id @default(cuid())
+  topicId   String
+  projectId String
+
+  topic     ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, projectId])
+}
+
+model ForumPost {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  authorId  String
+  topicId   String
+  parentId  String?  // Для ответов на сообщения
+  likes     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  topic     ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  parent    ForumPost? @relation("PostReplies", fields: [parentId], references: [id])
+  replies   ForumPost[] @relation("PostReplies")
+
+  @@index([topicId])
+  @@index([authorId])
+  @@index([parentId])
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  type      ConversationType
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([updatedAt])
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+model ConversationParticipant {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String
+  lastReadAt     DateTime?
+  joinedAt       DateTime @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  content        String   @db.Text
+  senderId       String
+  conversationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+model Team {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User     @relation("TeamOwner", fields: [ownerId], references: [id])
+  members     TeamMember[]
+  projects    Project[]
+
+  @@index([ownerId])
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      TeamRole
+  joinedAt  DateTime @default(now())
+
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  authorId    String
+  rating      Float    @default(0)
+  enrolledUsers Int    @default(0)
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author      User     @relation("CourseAuthor", fields: [authorId], references: [id])
+  lessons     Lesson[]
+  enrollments CourseEnrollment[]
+  certificates Certificate[]
+
+  @@index([authorId])
+  @@index([isPublished])
+}
+
+model CourseEnrollment {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  progress  Int      @default(0) // Процент завершения
+  enrolledAt DateTime @default(now())
+  completedAt DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+}
+
+model Lesson {
+  id        String   @id @default(cuid())
+  courseId  String
+  title     String
+  content   String   @db.Text
+  type      LessonType
+  videoUrl  String?
+  order     Int
+  duration  Int      @default(0) // в секундах
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  exercise  Exercise?
+  quiz      Quiz?
+
+  @@index([courseId])
+  @@index([order])
+}
+
+enum LessonType {
+  VIDEO
+  TEXT
+  EXERCISE
+  QUIZ
+}
+
+model Exercise {
+  id          String   @id @default(cuid())
+  lessonId    String   @unique
+  description String   @db.Text
+  starterCode String   @db.Text
+  solution    String   @db.Text
+  tests       Json     // Массив TestCase
+
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+}
+
+model Quiz {
+  id          String   @id @default(cuid())
+  lessonId    String   @unique
+  questions   Json     // Массив Question
+  passingScore Int     @default(70)
+
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+}
+
+model Certificate {
+  id             String   @id @default(cuid())
+  userId         String
+  courseId       String
+  verificationUrl String   @unique
+  blockchainHash String?
+  issuedAt       DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([verificationUrl])
+}
+
+model Video {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  url         String
+  thumbnail   String
+  duration    Int      // в секундах
+  number      Int      @unique // 1-100
+  qualities   Json     // Массив VideoQuality
+  subtitles   String?
+  createdAt   DateTime @default(now())
+
+  @@index([number])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+enum NotificationType {
+  MESSAGE
+  FORUM_REPLY
+  PROJECT_STAR
+  COURSE_UPDATE
+  TEAM_INVITE
+  SYSTEM
+}
+
